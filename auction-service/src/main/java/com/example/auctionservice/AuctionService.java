@@ -24,7 +24,7 @@ public class AuctionService {
             request.description(),
             request.sellerId(),
             request.startingPrice(),
-            AuctionStatus.OPEN,
+            AuctionStatus.DRAFT,
             Instant.now());
     auctions.put(auctionId, auction);
     return auction;
@@ -42,5 +42,49 @@ public class AuctionService {
     return auctions.values().stream()
         .sorted(Comparator.comparing(Auction::createdAt).reversed().thenComparing(Auction::id))
         .toList();
+  }
+
+  public Auction startAuction(String auctionId) {
+    Auction auction = getAuctionById(auctionId);
+    if (auction.status() != AuctionStatus.DRAFT) {
+      throw invalidTransition("start", auction.status());
+    }
+    return updateAuctionStatus(auction, AuctionStatus.ACTIVE);
+  }
+
+  public Auction endAuction(String auctionId) {
+    Auction auction = getAuctionById(auctionId);
+    if (auction.status() != AuctionStatus.ACTIVE) {
+      throw invalidTransition("end", auction.status());
+    }
+    return updateAuctionStatus(auction, AuctionStatus.ENDED);
+  }
+
+  public Auction cancelAuction(String auctionId) {
+    Auction auction = getAuctionById(auctionId);
+    if (auction.status() != AuctionStatus.DRAFT && auction.status() != AuctionStatus.ACTIVE) {
+      throw invalidTransition("cancel", auction.status());
+    }
+    return updateAuctionStatus(auction, AuctionStatus.CANCELLED);
+  }
+
+  private Auction updateAuctionStatus(Auction auction, AuctionStatus targetStatus) {
+    Auction updatedAuction =
+        new Auction(
+            auction.id(),
+            auction.title(),
+            auction.description(),
+            auction.sellerId(),
+            auction.startingPrice(),
+            targetStatus,
+            auction.createdAt());
+    auctions.put(updatedAuction.id(), updatedAuction);
+    return updatedAuction;
+  }
+
+  private ResponseStatusException invalidTransition(String action, AuctionStatus currentStatus) {
+    return new ResponseStatusException(
+        HttpStatus.CONFLICT,
+        "Cannot " + action + " auction in " + currentStatus + " state");
   }
 }

@@ -10,8 +10,10 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -35,7 +37,7 @@ class AuctionServiceApplicationTests {
   }
 
   @Test
-  void createAuctionReturnsCreatedAuction() throws Exception {
+  void createAuctionReturnsCreatedAuctionInDraftState() throws Exception {
     mockMvc.perform(
             post("/api/auctions")
                 .contentType("application/json")
@@ -54,36 +56,18 @@ class AuctionServiceApplicationTests {
         .andExpect(jsonPath("$.description").value("Used keyboard"))
         .andExpect(jsonPath("$.sellerId").value("seller-1"))
         .andExpect(jsonPath("$.startingPrice").value(50))
-        .andExpect(jsonPath("$.status").value("OPEN"));
+        .andExpect(jsonPath("$.status").value("DRAFT"));
   }
 
   @Test
   void getAuctionByIdReturnsCreatedAuction() throws Exception {
-    MvcResult createResult =
-        mockMvc
-            .perform(
-                post("/api/auctions")
-                    .contentType("application/json")
-                    .content(
-                        """
-                        {
-                          "title": "Monitor",
-                          "description": "24-inch monitor",
-                          "sellerId": "seller-2",
-                          "startingPrice": 120
-                        }
-                        """))
-            .andExpect(status().isCreated())
-            .andReturn();
-
-    JsonNode createdAuction = objectMapper.readTree(createResult.getResponse().getContentAsString());
-    String auctionId = createdAuction.get("id").asText();
+    String auctionId = createAuctionAndGetId("Monitor", "24-inch monitor", "seller-2", 120);
 
     mockMvc.perform(get("/api/auctions/{auctionId}", auctionId))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.id").value(auctionId))
         .andExpect(jsonPath("$.title").value("Monitor"))
-        .andExpect(jsonPath("$.status").value("OPEN"));
+        .andExpect(jsonPath("$.status").value("DRAFT"));
   }
 
   @Test
@@ -94,14 +78,14 @@ class AuctionServiceApplicationTests {
 
   @Test
   void listAuctionsReturnsNewestFirst() throws Exception {
-    JsonNode first = createAuction("Item A", "First item", "seller-3", 10);
+    String first = createAuctionAndGetId("Item A", "First item", "seller-3", 10);
     Thread.sleep(5);
-    JsonNode second = createAuction("Item B", "Second item", "seller-3", 20);
+    String second = createAuctionAndGetId("Item B", "Second item", "seller-3", 20);
 
     mockMvc.perform(get("/api/auctions"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$[0].id").value(second.get("id").asText()))
-        .andExpect(jsonPath("$[1].id").value(first.get("id").asText()));
+        .andExpect(jsonPath("$[0].id").value(second))
+        .andExpect(jsonPath("$[1].id").value(first));
   }
 
   @Test
@@ -121,8 +105,61 @@ class AuctionServiceApplicationTests {
         .andExpect(status().isBadRequest());
   }
 
-  private JsonNode createAuction(String title, String description, String sellerId, int startingPrice)
-      throws Exception {
+  @Test
+  void startFromDraftAndEndFromActiveSucceed() throws Exception {
+    String auctionId = createAuctionAndGetId("Desk", "Wooden desk", "seller-5", 75);
+
+    transition(auctionId, "start")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+    transition(auctionId, "end")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ENDED"));
+  }
+
+  @Test
+  void secondStartAfterEndedFailsWithClearError() throws Exception {
+    String auctionId = createAuctionAndGetId("Chair", "Office chair", "seller-6", 40);
+
+    transition(auctionId, "start").andExpect(status().isOk());
+    transition(auctionId, "end").andExpect(status().isOk());
+
+    transition(auctionId, "start")
+        .andExpect(status().isConflict())
+        .andExpect(content().string(containsString("Cannot start auction in ENDED state")));
+  }
+
+  @Test
+  void cancelWorksFromDraftAndActive() throws Exception {
+    String draftAuctionId = createAuctionAndGetId("Lamp", "Desk lamp", "seller-7", 15);
+    transition(draftAuctionId, "cancel")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+    String activeAuctionId = createAuctionAndGetId("Tablet", "Android tablet", "seller-8", 90);
+    transition(activeAuctionId, "start").andExpect(status().isOk());
+    transition(activeAuctionId, "cancel")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CANCELLED"));
+  }
+
+  @Test
+  void invalidTransitionFromDraftToEndFails() throws Exception {
+    String auctionId = createAuctionAndGetId("Phone", "Used phone", "seller-9", 55);
+
+    transition(auctionId, "end")
+        .andExpect(status().isConflict())
+        .andExpect(content().string(containsString("Cannot end auction in DRAFT state")));
+  }
+
+  @Test
+  void transitionFailsWithNotFoundForMissingAuction() throws Exception {
+    transition("missing-id", "start").andExpect(status().isNotFound());
+  }
+
+  private String createAuctionAndGetId(
+      String title, String description, String sellerId, int startingPrice) throws Exception {
     MvcResult result =
         mockMvc
             .perform(
@@ -141,6 +178,12 @@ class AuctionServiceApplicationTests {
             .andExpect(status().isCreated())
             .andReturn();
 
-    return objectMapper.readTree(result.getResponse().getContentAsString());
+    JsonNode created = objectMapper.readTree(result.getResponse().getContentAsString());
+    return created.get("id").asText();
+  }
+
+  private org.springframework.test.web.servlet.ResultActions transition(String auctionId, String action)
+      throws Exception {
+    return mockMvc.perform(post("/api/auctions/{auctionId}/{action}", auctionId, action));
   }
 }

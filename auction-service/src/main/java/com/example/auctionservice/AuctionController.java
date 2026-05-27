@@ -38,6 +38,21 @@ public class AuctionController {
     return auctionService.listAuctions().stream().map(this::toResponse).toList();
   }
 
+  @PostMapping("/{auctionId}/start")
+  public AuctionResponse startAuction(@PathVariable String auctionId) {
+    return toResponse(auctionService.startAuction(auctionId));
+  }
+
+  @PostMapping("/{auctionId}/end")
+  public AuctionResponse endAuction(@PathVariable String auctionId) {
+    return toResponse(auctionService.endAuction(auctionId));
+  }
+
+  @PostMapping("/{auctionId}/cancel")
+  public AuctionResponse cancelAuction(@PathVariable String auctionId) {
+    return toResponse(auctionService.cancelAuction(auctionId));
+  }
+
   private AuctionResponse toResponse(Auction auction) {
     return new AuctionResponse(
         auction.id(),
