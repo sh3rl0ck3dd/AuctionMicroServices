@@ -27,3 +27,16 @@ Health check:
 ```bash
 curl http://localhost:8080/api/health
 ```
+
+Create auction:
+
+```bash
+curl -X POST http://localhost:8080/api/auctions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Mechanical Keyboard",
+    "description": "Used keyboard",
+    "sellerId": "seller-1",
+    "startingPrice": 50
+  }'
+```
