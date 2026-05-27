@@ -19,8 +19,9 @@ class AuctionServiceApplicationTests {
 
   @Test
   void healthEndpointReturnsUp() throws Exception {
-    mockMvc.perform(get("/health"))
+    mockMvc.perform(get("/api/health"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("UP"));
+        .andExpect(jsonPath("$.status").value("UP"))
+        .andExpect(jsonPath("$.service").value("auction-service"));
   }
 }

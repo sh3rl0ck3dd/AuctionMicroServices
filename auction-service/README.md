@@ -22,4 +22,4 @@ Or with a local Maven install:
 
 ## Endpoint
 
-- `GET /health`
+- `GET /api/health`
