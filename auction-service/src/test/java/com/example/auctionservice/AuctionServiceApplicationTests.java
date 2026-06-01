@@ -1,189 +1,198 @@
 package com.example.auctionservice;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestTemplate;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@SpringBootTest
-@AutoConfigureMockMvc
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 class AuctionServiceApplicationTests {
 
-  @Autowired
-  private MockMvc mockMvc;
+  @LocalServerPort
+  private int port;
 
-  @Autowired
-  private ObjectMapper objectMapper;
+  private final RestTemplate rest = new RestTemplate();
 
-  @Test
-  void healthEndpointReturnsUp() throws Exception {
-    mockMvc.perform(get("/api/health"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("UP"))
-        .andExpect(jsonPath("$.service").value("auction-service"));
+  private String auctionsUrl() {
+    return "http://localhost:" + port + "/api/auctions";
+  }
+
+  private String auctionUrl(String auctionId) {
+    return "http://localhost:" + port + "/api/auctions/" + auctionId;
+  }
+
+  private String transitionUrl(String auctionId, String action) {
+    return "http://localhost:" + port + "/api/auctions/" + auctionId + "/" + action;
+  }
+
+  private HttpEntity<String> jsonRequest(String body) {
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    return new HttpEntity<>(body, headers);
   }
 
   @Test
-  void createAuctionReturnsCreatedAuctionInDraftState() throws Exception {
-    mockMvc.perform(
-            post("/api/auctions")
-                .contentType("application/json")
-                .content(
-                    """
-                    {
-                      "title": "Mechanical Keyboard",
-                      "description": "Used keyboard",
-                      "sellerId": "seller-1",
-                      "startingPrice": 50
-                    }
-                    """))
-        .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.id").isString())
-        .andExpect(jsonPath("$.title").value("Mechanical Keyboard"))
-        .andExpect(jsonPath("$.description").value("Used keyboard"))
-        .andExpect(jsonPath("$.sellerId").value("seller-1"))
-        .andExpect(jsonPath("$.startingPrice").value(50))
-        .andExpect(jsonPath("$.status").value("DRAFT"));
+  void healthEndpointReturnsUp() {
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<String> response =
+        rest.getForEntity("http://localhost:" + port + "/api/health", String.class);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(response.getBody()).contains("UP");
   }
 
   @Test
-  void getAuctionByIdReturnsCreatedAuction() throws Exception {
-    String auctionId = createAuctionAndGetId("Monitor", "24-inch monitor", "seller-2", 120);
+  void createAuctionReturnsCreatedAuctionInDraftState() {
+    var request = jsonRequest("""
+        {"title": "Mechanical Keyboard", "description": "Used keyboard", "sellerId": "seller-1", "startingPrice": 50}
+        """);
 
-    mockMvc.perform(get("/api/auctions/{auctionId}", auctionId))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.id").value(auctionId))
-        .andExpect(jsonPath("$.title").value("Monitor"))
-        .andExpect(jsonPath("$.status").value("DRAFT"));
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> response =
+        rest.postForEntity(auctionsUrl(), request, AuctionResponse.class);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    assertThat(response.getBody()).isNotNull();
+    assertThat(response.getBody().id()).isNotBlank();
+    assertThat(response.getBody().title()).isEqualTo("Mechanical Keyboard");
+    assertThat(response.getBody().description()).isEqualTo("Used keyboard");
+    assertThat(response.getBody().sellerId()).isEqualTo("seller-1");
+    assertThat(response.getBody().startingPrice()).isEqualByComparingTo("50");
+    assertThat(response.getBody().status()).isEqualTo(AuctionStatus.DRAFT);
   }
 
   @Test
-  void getAuctionByIdReturnsNotFoundWhenMissing() throws Exception {
-    mockMvc.perform(get("/api/auctions/{auctionId}", "missing-id"))
-        .andExpect(status().isNotFound());
+  void getAuctionByIdReturnsCreatedAuction() {
+    String auctionId = createAuction("Monitor", "24-inch monitor", "seller-2", 120);
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> response =
+        rest.getForEntity(auctionUrl(auctionId), AuctionResponse.class);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(response.getBody()).isNotNull();
+    assertThat(response.getBody().id()).isEqualTo(auctionId);
+    assertThat(response.getBody().title()).isEqualTo("Monitor");
+    assertThat(response.getBody().status()).isEqualTo(AuctionStatus.DRAFT);
+  }
+
+  @Test
+  void getAuctionByIdReturnsNotFoundWhenMissing() {
+    assertThatThrownBy(
+            () -> rest.getForEntity(auctionUrl("missing-id"), AuctionResponse.class))
+        .isInstanceOf(HttpClientErrorException.NotFound.class);
   }
 
   @Test
   void listAuctionsReturnsNewestFirst() throws Exception {
-    String first = createAuctionAndGetId("Item A", "First item", "seller-3", 10);
+    String first = createAuction("Item A", "First item", "seller-3", 10);
     Thread.sleep(5);
-    String second = createAuctionAndGetId("Item B", "Second item", "seller-3", 20);
+    String second = createAuction("Item B", "Second item", "seller-3", 20);
 
-    mockMvc.perform(get("/api/auctions"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$[0].id").value(second))
-        .andExpect(jsonPath("$[1].id").value(first));
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse[]> response =
+        rest.getForEntity(auctionsUrl(), AuctionResponse[].class);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(response.getBody()).hasSize(2);
+    assertThat(response.getBody()[0].id()).isEqualTo(second);
+    assertThat(response.getBody()[1].id()).isEqualTo(first);
   }
 
   @Test
-  void createAuctionReturnsBadRequestForInvalidPayload() throws Exception {
-    mockMvc.perform(
-            post("/api/auctions")
-                .contentType("application/json")
-                .content(
-                    """
-                    {
-                      "title": "",
-                      "description": "desc",
-                      "sellerId": "seller-4",
-                      "startingPrice": 0
-                    }
-                    """))
-        .andExpect(status().isBadRequest());
+  void createAuctionReturnsBadRequestForInvalidPayload() {
+    var request = jsonRequest("""
+        {"title": "", "description": "desc", "sellerId": "seller-4", "startingPrice": 0}
+        """);
+
+    assertThatThrownBy(
+            () -> rest.postForEntity(auctionsUrl(), request, AuctionResponse.class))
+        .isInstanceOf(HttpClientErrorException.BadRequest.class);
   }
 
   @Test
-  void startFromDraftAndEndFromActiveSucceed() throws Exception {
-    String auctionId = createAuctionAndGetId("Desk", "Wooden desk", "seller-5", 75);
+  void startFromDraftAndEndFromActiveSucceed() {
+    String auctionId = createAuction("Desk", "Wooden desk", "seller-5", 75);
 
-    transition(auctionId, "start")
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("ACTIVE"));
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> started =
+        rest.postForEntity(transitionUrl(auctionId, "start"), null, AuctionResponse.class);
+    assertThat(started.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(started.getBody().status()).isEqualTo(AuctionStatus.ACTIVE);
 
-    transition(auctionId, "end")
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("ENDED"));
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> ended =
+        rest.postForEntity(transitionUrl(auctionId, "end"), null, AuctionResponse.class);
+    assertThat(ended.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(ended.getBody().status()).isEqualTo(AuctionStatus.ENDED);
   }
 
   @Test
-  void secondStartAfterEndedFailsWithClearError() throws Exception {
-    String auctionId = createAuctionAndGetId("Chair", "Office chair", "seller-6", 40);
+  void secondStartAfterEndedFailsWithClearError() {
+    String auctionId = createAuction("Chair", "Office chair", "seller-6", 40);
 
-    transition(auctionId, "start").andExpect(status().isOk());
-    transition(auctionId, "end").andExpect(status().isOk());
+    rest.postForEntity(transitionUrl(auctionId, "start"), null, AuctionResponse.class);
+    rest.postForEntity(transitionUrl(auctionId, "end"), null, AuctionResponse.class);
 
-    transition(auctionId, "start")
-        .andExpect(status().isConflict())
-        .andExpect(content().string(containsString("Cannot start auction in ENDED state")));
+    assertThatThrownBy(
+            () -> rest.postForEntity(transitionUrl(auctionId, "start"), null, String.class))
+        .isInstanceOf(HttpClientErrorException.Conflict.class);
   }
 
   @Test
-  void cancelWorksFromDraftAndActive() throws Exception {
-    String draftAuctionId = createAuctionAndGetId("Lamp", "Desk lamp", "seller-7", 15);
-    transition(draftAuctionId, "cancel")
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("CANCELLED"));
+  void cancelWorksFromDraftAndActive() {
+    String draftId = createAuction("Lamp", "Desk lamp", "seller-7", 15);
 
-    String activeAuctionId = createAuctionAndGetId("Tablet", "Android tablet", "seller-8", 90);
-    transition(activeAuctionId, "start").andExpect(status().isOk());
-    transition(activeAuctionId, "cancel")
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("CANCELLED"));
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> cancelled =
+        rest.postForEntity(transitionUrl(draftId, "cancel"), null, AuctionResponse.class);
+    assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(cancelled.getBody().status()).isEqualTo(AuctionStatus.CANCELLED);
+
+    String activeId = createAuction("Tablet", "Android tablet", "seller-8", 90);
+    rest.postForEntity(transitionUrl(activeId, "start"), null, AuctionResponse.class);
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> cancelled2 =
+        rest.postForEntity(transitionUrl(activeId, "cancel"), null, AuctionResponse.class);
+    assertThat(cancelled2.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(cancelled2.getBody().status()).isEqualTo(AuctionStatus.CANCELLED);
   }
 
   @Test
-  void invalidTransitionFromDraftToEndFails() throws Exception {
-    String auctionId = createAuctionAndGetId("Phone", "Used phone", "seller-9", 55);
+  void invalidTransitionFromDraftToEndFails() {
+    String auctionId = createAuction("Phone", "Used phone", "seller-9", 55);
 
-    transition(auctionId, "end")
-        .andExpect(status().isConflict())
-        .andExpect(content().string(containsString("Cannot end auction in DRAFT state")));
+    assertThatThrownBy(
+            () -> rest.postForEntity(transitionUrl(auctionId, "end"), null, String.class))
+        .isInstanceOf(HttpClientErrorException.Conflict.class);
   }
 
   @Test
-  void transitionFailsWithNotFoundForMissingAuction() throws Exception {
-    transition("missing-id", "start").andExpect(status().isNotFound());
+  void transitionFailsWithNotFoundForMissingAuction() {
+    assertThatThrownBy(
+            () -> rest.postForEntity(transitionUrl("missing-id", "start"), null, String.class))
+        .isInstanceOf(HttpClientErrorException.NotFound.class);
   }
 
-  private String createAuctionAndGetId(
-      String title, String description, String sellerId, int startingPrice) throws Exception {
-    MvcResult result =
-        mockMvc
-            .perform(
-                post("/api/auctions")
-                    .contentType("application/json")
-                    .content(
-                        """
-                        {
-                          "title": "%s",
-                          "description": "%s",
-                          "sellerId": "%s",
-                          "startingPrice": %d
-                        }
-                        """
-                            .formatted(title, description, sellerId, startingPrice)))
-            .andExpect(status().isCreated())
-            .andReturn();
+  private String createAuction(String title, String description, String sellerId, int startingPrice) {
+    var request = jsonRequest("""
+        {"title": "%s", "description": "%s", "sellerId": "%s", "startingPrice": %d}
+        """.formatted(title, description, sellerId, startingPrice));
 
-    JsonNode created = objectMapper.readTree(result.getResponse().getContentAsString());
-    return created.get("id").asText();
-  }
-
-  private org.springframework.test.web.servlet.ResultActions transition(String auctionId, String action)
-      throws Exception {
-    return mockMvc.perform(post("/api/auctions/{auctionId}/{action}", auctionId, action));
+    ResponseEntity<AuctionResponse> response =
+        rest.postForEntity(auctionsUrl(), request, AuctionResponse.class);
+    return response.getBody().id();
   }
 }

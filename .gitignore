@@ -11,6 +11,11 @@
 **/.mvn/
 *.class
 
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
 # Node
 **/node_modules/
 
@@ -20,3 +25,6 @@
 # Env
 .env
 .env.*
+
+# Qwen Code
+.qwen/
