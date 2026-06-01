@@ -19,6 +19,9 @@ build/
 # Node
 **/node_modules/
 
+# Vite / React build output
+react-ui/dist/
+
 # Logs
 *.log
 
