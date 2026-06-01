@@ -16,6 +16,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.springframework.web.client.HttpClientErrorException;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 class BiddingServiceApplicationTests {
@@ -190,5 +197,61 @@ class BiddingServiceApplicationTests {
     assertThat(firstBid.status()).isEqualTo(BidStatus.OUTBID);
     BidResponse secondBid = allBids.getBody()[1];
     assertThat(secondBid.status()).isEqualTo(BidStatus.ACTIVE);
+  }
+
+  @Test
+  void concurrentBidsOnSameAuctionProcessCorrectly() throws Exception {
+    int threadCount = 20;
+    String auctionId = "auction-concurrent";
+    ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+    List<Future<BidResponse>> futures = new ArrayList<>();
+
+    for (int i = 0; i < threadCount; i++) {
+      final BigDecimal amount = new BigDecimal(10 + i * 10);
+      final String bidderId = "bidder-" + i;
+      futures.add(executor.submit(() -> {
+        var request = jsonRequest("""
+            {"bidderId": "%s", "amount": %s}
+            """.formatted(bidderId, amount));
+        try {
+          @SuppressWarnings("rawtypes")
+          ResponseEntity<BidResponse> resp =
+              rest.postForEntity(bidsUrl(auctionId), request, BidResponse.class);
+          return resp.getBody();
+        } catch (HttpClientErrorException e) {
+          return null;
+        }
+      }));
+    }
+
+    List<BidResponse> successfulBids = new ArrayList<>();
+    for (Future<BidResponse> future : futures) {
+      BidResponse result = future.get();
+      if (result != null) {
+        successfulBids.add(result);
+      }
+    }
+    executor.shutdown();
+
+    assertThat(successfulBids).isNotEmpty();
+
+    BigDecimal maxAmount = successfulBids.stream()
+        .map(BidResponse::amount)
+        .max(BigDecimal::compareTo)
+        .orElse(BigDecimal.ZERO);
+    assertThat(maxAmount).isEqualByComparingTo("200");
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<BidResponse[]> allBidsResp =
+        rest.getForEntity(bidsUrl(auctionId), BidResponse[].class);
+
+    assertThat(allBidsResp.getBody()).isNotNull();
+    assertThat(allBidsResp.getBody().length).isEqualTo(successfulBids.size());
+
+    for (BidResponse bid : allBidsResp.getBody()) {
+      if (bid.status() == BidStatus.ACTIVE) {
+        assertThat(bid.amount()).isEqualByComparingTo(maxAmount);
+      }
+    }
   }
 }
