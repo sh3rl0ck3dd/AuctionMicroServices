@@ -115,4 +115,80 @@ class BiddingServiceApplicationTests {
             () -> rest.postForEntity(bidsUrl("auction-4"), request, String.class))
         .isInstanceOf(HttpClientErrorException.BadRequest.class);
   }
+
+  @Test
+  void placeBidOnActiveAuctionSucceeds() {
+    var request = jsonRequest("""
+        {"bidderId": "bidder-5", "amount": 500}
+        """);
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<BidResponse> response =
+        rest.postForEntity(bidsUrl("auction-active"), request, BidResponse.class);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    assertThat(response.getBody()).isNotNull();
+    assertThat(response.getBody().status()).isEqualTo(BidStatus.ACTIVE);
+    assertThat(response.getBody().amount()).isEqualByComparingTo("500");
+  }
+
+  @Test
+  void placeBidOnEndedAuctionFails() {
+    var request = jsonRequest("""
+        {"bidderId": "bidder-6", "amount": 100}
+        """);
+
+    assertThatThrownBy(
+            () -> rest.postForEntity(bidsUrl("auction-ended"), request, String.class))
+        .isInstanceOf(HttpClientErrorException.Conflict.class);
+  }
+
+  @Test
+  void placeBidLowerThanHighestFails() {
+    var first = jsonRequest("""
+        {"bidderId": "bidder-7", "amount": 50}
+        """);
+    rest.postForEntity(bidsUrl("auction-5"), first, BidResponse.class);
+
+    var second = jsonRequest("""
+        {"bidderId": "bidder-8", "amount": 30}
+        """);
+
+    assertThatThrownBy(
+            () -> rest.postForEntity(bidsUrl("auction-5"), second, String.class))
+        .isInstanceOf(HttpClientErrorException.BadRequest.class);
+  }
+
+  @Test
+  void placeBidHigherThanHighestSucceedsAndOutbidsPrevious() {
+    var first = jsonRequest("""
+        {"bidderId": "bidder-9", "amount": 50}
+        """);
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<BidResponse> firstResp =
+        rest.postForEntity(bidsUrl("auction-6"), first, BidResponse.class);
+    assertThat(firstResp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+    var second = jsonRequest("""
+        {"bidderId": "bidder-10", "amount": 200}
+        """);
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<BidResponse> secondResp =
+        rest.postForEntity(bidsUrl("auction-6"), second, BidResponse.class);
+
+    assertThat(secondResp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    assertThat(secondResp.getBody()).isNotNull();
+    assertThat(secondResp.getBody().status()).isEqualTo(BidStatus.ACTIVE);
+    assertThat(secondResp.getBody().amount()).isEqualByComparingTo("200");
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<BidResponse[]> allBids =
+        rest.getForEntity(bidsUrl("auction-6"), BidResponse[].class);
+
+    assertThat(allBids.getBody()).hasSize(2);
+    BidResponse firstBid = allBids.getBody()[0];
+    assertThat(firstBid.status()).isEqualTo(BidStatus.OUTBID);
+    BidResponse secondBid = allBids.getBody()[1];
+    assertThat(secondBid.status()).isEqualTo(BidStatus.ACTIVE);
+  }
 }
