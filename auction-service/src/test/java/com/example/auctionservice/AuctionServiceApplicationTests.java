@@ -186,6 +186,35 @@ class AuctionServiceApplicationTests {
         .isInstanceOf(HttpClientErrorException.NotFound.class);
   }
 
+  @Test
+  void highestBidUpdatesCurrentPrice() {
+    String auctionId = createAuction("Laptop", "Gaming laptop", "seller-10", 50);
+
+    rest.postForEntity(transitionUrl(auctionId, "start"), null, AuctionResponse.class);
+
+    var highestBidRequest = jsonRequest("""
+        {"bidId": "bid-1", "bidderId": "user-1", "amount": 80}
+        """);
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> updateResp =
+        rest.postForEntity(highestBidUrl(auctionId), highestBidRequest, AuctionResponse.class);
+
+    assertThat(updateResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(updateResp.getBody().currentPrice()).isEqualByComparingTo("80");
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> getResp =
+        rest.getForEntity(auctionUrl(auctionId), AuctionResponse.class);
+
+    assertThat(getResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(getResp.getBody().currentPrice()).isEqualByComparingTo("80");
+  }
+
+  private String highestBidUrl(String auctionId) {
+    return "http://localhost:" + port + "/api/auctions/" + auctionId + "/highest-bid";
+  }
+
   private String createAuction(String title, String description, String sellerId, int startingPrice) {
     var request = jsonRequest("""
         {"title": "%s", "description": "%s", "sellerId": "%s", "startingPrice": %d}

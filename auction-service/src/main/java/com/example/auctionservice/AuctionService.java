@@ -24,6 +24,7 @@ public class AuctionService {
             request.description(),
             request.sellerId(),
             request.startingPrice(),
+            request.startingPrice(),
             AuctionStatus.DRAFT,
             Instant.now());
     auctions.put(auctionId, auction);
@@ -68,6 +69,30 @@ public class AuctionService {
     return updateAuctionStatus(auction, AuctionStatus.CANCELLED);
   }
 
+  public Auction updateHighestBid(String auctionId, HighestBidRequest request) {
+    Auction auction = getAuctionById(auctionId);
+    if (auction.status() != AuctionStatus.ACTIVE) {
+      throw invalidTransition("update bid for", auction.status());
+    }
+    if (request.amount().compareTo(auction.currentPrice()) <= 0) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "Bid amount must exceed current price: " + auction.currentPrice());
+    }
+    Auction updated =
+        new Auction(
+            auction.id(),
+            auction.title(),
+            auction.description(),
+            auction.sellerId(),
+            auction.startingPrice(),
+            request.amount(),
+            auction.status(),
+            auction.createdAt());
+    auctions.put(updated.id(), updated);
+    return updated;
+  }
+
   private Auction updateAuctionStatus(Auction auction, AuctionStatus targetStatus) {
     Auction updatedAuction =
         new Auction(
@@ -76,6 +101,7 @@ public class AuctionService {
             auction.description(),
             auction.sellerId(),
             auction.startingPrice(),
+            auction.currentPrice(),
             targetStatus,
             auction.createdAt());
     auctions.put(updatedAuction.id(), updatedAuction);

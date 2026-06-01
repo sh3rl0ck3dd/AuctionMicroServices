@@ -25,4 +25,9 @@ public class MockAuctionClient implements AuctionClient {
     String status = STATUS_OVERRIDES.getOrDefault(auctionId, "ACTIVE");
     return new AuctionSummary(auctionId, status, DEFAULT_STARTING_PRICE);
   }
+
+  @Override
+  public void updateHighestBid(String auctionId, String bidId, String bidderId,
+      java.math.BigDecimal amount) {
+  }
 }

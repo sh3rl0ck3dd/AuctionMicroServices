@@ -8,4 +8,5 @@ public record AuctionResponse(
     String description,
     String sellerId,
     BigDecimal startingPrice,
+    BigDecimal currentPrice,
     AuctionStatus status) {}

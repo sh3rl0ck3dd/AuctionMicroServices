@@ -53,6 +53,12 @@ public class AuctionController {
     return toResponse(auctionService.cancelAuction(auctionId));
   }
 
+  @PostMapping("/{auctionId}/highest-bid")
+  public AuctionResponse updateHighestBid(
+      @PathVariable String auctionId, @RequestBody HighestBidRequest request) {
+    return toResponse(auctionService.updateHighestBid(auctionId, request));
+  }
+
   private AuctionResponse toResponse(Auction auction) {
     return new AuctionResponse(
         auction.id(),
@@ -60,6 +66,7 @@ public class AuctionController {
         auction.description(),
         auction.sellerId(),
         auction.startingPrice(),
+        auction.currentPrice(),
         auction.status());
   }
 }

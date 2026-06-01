@@ -9,5 +9,6 @@ public record Auction(
     String description,
     String sellerId,
     BigDecimal startingPrice,
+    BigDecimal currentPrice,
     AuctionStatus status,
     Instant createdAt) {}

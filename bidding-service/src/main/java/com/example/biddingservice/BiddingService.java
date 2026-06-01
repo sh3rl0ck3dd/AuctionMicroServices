@@ -75,6 +75,7 @@ public class BiddingService {
               Instant.now());
 
       bids.add(bid);
+      auctionClient.updateHighestBid(auctionId, bidId, request.bidderId(), request.amount());
       return bid;
     } finally {
       lock.unlock();
