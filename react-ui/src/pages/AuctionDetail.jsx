@@ -1,23 +1,37 @@
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-
-const HARDCODED_BIDS = [
-  { id: 'bid-1', bidderId: 'user-1', amount: 60, status: 'OUTBID', createdAt: '2026-05-30T10:00:00Z' },
-  { id: 'bid-2', bidderId: 'user-2', amount: 75, status: 'ACTIVE', createdAt: '2026-05-30T11:00:00Z' },
-]
-
-const HARDCODED_AUCTION = {
-  id: '1',
-  title: 'Vintage Watch',
-  description: 'A classic mechanical watch from the 1960s. Fully functional and in great condition.',
-  sellerId: 'seller-1',
-  startingPrice: 50,
-  currentPrice: 75,
-  status: 'ACTIVE',
-}
 
 function AuctionDetail() {
   const { id } = useParams()
-  const auction = HARDCODED_AUCTION
+  const [auction, setAuction] = useState(null)
+  const [bids, setBids] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/auctions/${id}`).then(res => {
+        if (!res.ok) throw new Error('Auction not found')
+        return res.json()
+      }),
+      fetch(`/api/auctions/${id}/bids`).then(res => {
+        if (!res.ok) return []
+        return res.json()
+      }),
+    ])
+      .then(([auctionData, bidData]) => {
+        setAuction(auctionData)
+        setBids(Array.isArray(bidData) ? bidData : [])
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [id])
+
+  if (loading) return <p>Loading auction...</p>
+
+  if (error) return <div className="card"><p style={{ color: 'red' }}>Error: {error}</p></div>
+
+  if (!auction) return <div className="card"><p>Auction not found.</p></div>
 
   return (
     <div>
@@ -41,10 +55,10 @@ function AuctionDetail() {
       </div>
 
       <h3 style={{ margin: '1.5rem 0 0.75rem' }}>Bids</h3>
-      {HARDCODED_BIDS.length === 0 ? (
+      {bids.length === 0 ? (
         <p style={{ color: '#666' }}>No bids yet.</p>
       ) : (
-        HARDCODED_BIDS.map(bid => (
+        bids.map(bid => (
           <div className="card" key={bid.id} style={{ opacity: bid.status === 'OUTBID' ? 0.6 : 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>

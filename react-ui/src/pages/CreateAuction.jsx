@@ -4,11 +4,33 @@ import { Link, useNavigate } from 'react-router-dom'
 function CreateAuction() {
   const navigate = useNavigate()
   const [form, setForm] = useState({ title: '', description: '', sellerId: '', startingPrice: '' })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState(null)
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    alert('Auction created! (hardcoded demo)')
-    navigate('/')
+    setSubmitting(true)
+    setError(null)
+
+    fetch('/api/auctions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: form.title,
+        description: form.description,
+        sellerId: form.sellerId,
+        startingPrice: Number(form.startingPrice),
+      }),
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to create auction')
+        return res.json()
+      })
+      .then(() => navigate('/'))
+      .catch(err => {
+        setError(err.message)
+        setSubmitting(false)
+      })
   }
 
   return (
@@ -16,6 +38,7 @@ function CreateAuction() {
       <Link to="/" className="back-link">← Back to Auctions</Link>
       <div className="card">
         <h2 style={{ marginBottom: '1rem' }}>Create Auction</h2>
+        {error && <p style={{ color: 'red', marginBottom: '1rem' }}>Error: {error}</p>}
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Title</label>
@@ -53,7 +76,9 @@ function CreateAuction() {
               required
             />
           </div>
-          <button type="submit" className="btn btn-primary">Create Auction</button>
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? 'Creating...' : 'Create Auction'}
+          </button>
         </form>
       </div>
     </div>

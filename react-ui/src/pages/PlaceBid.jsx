@@ -5,11 +5,31 @@ function PlaceBid() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [form, setForm] = useState({ bidderId: '', amount: '' })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState(null)
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    alert(`Bid placed on auction ${id}! (hardcoded demo)`)
-    navigate(`/auction/${id}`)
+    setSubmitting(true)
+    setError(null)
+
+    fetch(`/api/auctions/${id}/bids`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bidderId: form.bidderId,
+        amount: Number(form.amount),
+      }),
+    })
+      .then(res => {
+        if (!res.ok) return res.text().then(msg => { throw new Error(msg || 'Bid failed') })
+        return res.json()
+      })
+      .then(() => navigate(`/auction/${id}`))
+      .catch(err => {
+        setError(err.message)
+        setSubmitting(false)
+      })
   }
 
   return (
@@ -20,6 +40,7 @@ function PlaceBid() {
         <p style={{ marginBottom: '1rem', color: '#666' }}>
           Bidding on auction <strong>{id}</strong>
         </p>
+        {error && <p style={{ color: 'red', marginBottom: '1rem' }}>Error: {error}</p>}
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Bidder ID</label>
@@ -40,7 +61,9 @@ function PlaceBid() {
               required
             />
           </div>
-          <button type="submit" className="btn btn-primary">Submit Bid</button>
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? 'Submitting...' : 'Submit Bid'}
+          </button>
         </form>
       </div>
     </div>
