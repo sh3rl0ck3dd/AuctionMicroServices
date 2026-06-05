@@ -18,9 +18,8 @@ public class RestAuctionClient implements AuctionClient {
   private final RestClient restClient;
 
   public RestAuctionClient(
-      @Value("${auction-service.url}") String auctionServiceUrl,
-      RestClient.Builder builder) {
-    this.restClient = builder.baseUrl(auctionServiceUrl).build();
+      @Value("${auction-service.url}") String auctionServiceUrl) {
+    this.restClient = RestClient.builder().baseUrl(auctionServiceUrl).build();
   }
 
   @Override
