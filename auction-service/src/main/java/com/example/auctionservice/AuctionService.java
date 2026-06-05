@@ -3,9 +3,7 @@ package com.example.auctionservice;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -13,7 +11,11 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class AuctionService {
 
-  private final Map<String, Auction> auctions = new ConcurrentHashMap<>();
+  private final AuctionStore store;
+
+  public AuctionService(AuctionStore store) {
+    this.store = store;
+  }
 
   public Auction createAuction(CreateAuctionRequest request) {
     String auctionId = UUID.randomUUID().toString();
@@ -27,12 +29,12 @@ public class AuctionService {
             request.startingPrice(),
             AuctionStatus.DRAFT,
             Instant.now());
-    auctions.put(auctionId, auction);
+    store.put(auctionId, auction);
     return auction;
   }
 
   public Auction getAuctionById(String auctionId) {
-    Auction auction = auctions.get(auctionId);
+    Auction auction = store.get(auctionId);
     if (auction == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Auction not found");
     }
@@ -40,7 +42,7 @@ public class AuctionService {
   }
 
   public List<Auction> listAuctions() {
-    return auctions.values().stream()
+    return store.values().stream()
         .sorted(Comparator.comparing(Auction::createdAt).reversed().thenComparing(Auction::id))
         .toList();
   }
@@ -89,7 +91,7 @@ public class AuctionService {
             request.amount(),
             auction.status(),
             auction.createdAt());
-    auctions.put(updated.id(), updated);
+    store.put(updated.id(), updated);
     return updated;
   }
 
@@ -104,7 +106,7 @@ public class AuctionService {
             auction.currentPrice(),
             targetStatus,
             auction.createdAt());
-    auctions.put(updatedAuction.id(), updatedAuction);
+    store.put(updatedAuction.id(), updatedAuction);
     return updatedAuction;
   }
 

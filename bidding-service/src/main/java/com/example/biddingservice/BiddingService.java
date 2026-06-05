@@ -16,11 +16,12 @@ import org.springframework.web.server.ResponseStatusException;
 public class BiddingService {
 
   private final AuctionClient auctionClient;
-  private final Map<String, List<Bid>> bidsByAuctionId = new ConcurrentHashMap<>();
+  private final BidStore bidStore;
   private final Map<String, ReentrantLock> lockByAuctionId = new ConcurrentHashMap<>();
 
-  public BiddingService(AuctionClient auctionClient) {
+  public BiddingService(AuctionClient auctionClient, BidStore bidStore) {
     this.auctionClient = auctionClient;
+    this.bidStore = bidStore;
   }
 
   public Bid placeBid(String auctionId, PlaceBidRequest request) {
@@ -34,7 +35,8 @@ public class BiddingService {
             HttpStatus.CONFLICT, "Auction is not active: " + auctionId);
       }
 
-      List<Bid> bids = bidsByAuctionId.computeIfAbsent(auctionId, k -> new ArrayList<>());
+      bidStore.putIfAbsent(auctionId, new ArrayList<>());
+      List<Bid> bids = bidStore.get(auctionId);
 
       BigDecimal currentHighest = bids.stream()
           .map(Bid::amount)
@@ -83,6 +85,6 @@ public class BiddingService {
   }
 
   public List<Bid> getBidsForAuction(String auctionId) {
-    return bidsByAuctionId.getOrDefault(auctionId, List.of());
+    return bidStore.get(auctionId);
   }
 }

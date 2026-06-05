@@ -31,3 +31,6 @@ react-ui/dist/
 
 # Qwen Code
 .qwen/
+
+# Runtime data
+**/data/
