@@ -3,6 +3,7 @@ package com.example.auctionservice;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -12,9 +13,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuctionService {
 
   private final AuctionStore store;
+  private final Optional<AuctionEventPublisher> eventPublisher;
 
-  public AuctionService(AuctionStore store) {
+  public AuctionService(AuctionStore store, Optional<AuctionEventPublisher> eventPublisher) {
     this.store = store;
+    this.eventPublisher = eventPublisher;
   }
 
   public Auction createAuction(CreateAuctionRequest request) {
@@ -30,6 +33,7 @@ public class AuctionService {
             AuctionStatus.DRAFT,
             Instant.now());
     store.put(auctionId, auction);
+    eventPublisher.ifPresent(p -> p.auctionCreated(auction));
     return auction;
   }
 
@@ -107,6 +111,10 @@ public class AuctionService {
             targetStatus,
             auction.createdAt());
     store.put(updatedAuction.id(), updatedAuction);
+    switch (targetStatus) {
+      case ACTIVE -> eventPublisher.ifPresent(p -> p.auctionStarted(updatedAuction));
+      case ENDED -> eventPublisher.ifPresent(p -> p.auctionEnded(updatedAuction));
+    }
     return updatedAuction;
   }
 
