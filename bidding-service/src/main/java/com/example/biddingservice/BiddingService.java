@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -17,11 +18,14 @@ public class BiddingService {
 
   private final AuctionClient auctionClient;
   private final BidStore bidStore;
+  private final Optional<BidEventPublisher> eventPublisher;
   private final Map<String, ReentrantLock> lockByAuctionId = new ConcurrentHashMap<>();
 
-  public BiddingService(AuctionClient auctionClient, BidStore bidStore) {
+  public BiddingService(
+      AuctionClient auctionClient, BidStore bidStore, Optional<BidEventPublisher> eventPublisher) {
     this.auctionClient = auctionClient;
     this.bidStore = bidStore;
+    this.eventPublisher = eventPublisher;
   }
 
   public Bid placeBid(String auctionId, PlaceBidRequest request) {
@@ -44,6 +48,15 @@ public class BiddingService {
           .orElse(auction.startingPrice());
 
       if (request.amount().compareTo(currentHighest) <= 0) {
+        Bid rejected =
+            new Bid(
+                UUID.randomUUID().toString(),
+                auctionId,
+                request.bidderId(),
+                request.amount(),
+                BidStatus.OUTBID,
+                Instant.now());
+        eventPublisher.ifPresent(p -> p.bidRejected(rejected));
         throw new ResponseStatusException(
             HttpStatus.BAD_REQUEST,
             "Bid amount must be greater than current highest bid: " + currentHighest);
@@ -77,6 +90,7 @@ public class BiddingService {
               Instant.now());
 
       bids.add(bid);
+      eventPublisher.ifPresent(p -> p.bidAccepted(bid));
       auctionClient.updateHighestBid(auctionId, bidId, request.bidderId(), request.amount());
       return bid;
     } finally {
