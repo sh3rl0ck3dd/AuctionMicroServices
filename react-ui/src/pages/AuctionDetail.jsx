@@ -27,6 +27,42 @@ function AuctionDetail() {
       .finally(() => setLoading(false))
   }, [id])
 
+  useEffect(() => {
+    if (loading || error || !auction) return
+
+    const source = new EventSource(`/api/notifications/auctions/${id}/stream`)
+
+    source.onmessage = (event) => {
+      let update
+      try {
+        update = JSON.parse(event.data)
+      } catch {
+        return
+      }
+      const { type, data } = update
+      console.log(type, data)
+
+      if (type === 'bid.accepted') {
+        setBids(prev => [
+          { id: data.bidId, bidderId: data.bidderId, amount: data.amount, status: data.status },
+          ...prev.map(b => b.status === 'ACTIVE' ? { ...b, status: 'OUTBID' } : b),
+        ])
+        setAuction(prev => prev ? { ...prev, currentPrice: data.amount } : prev)
+      } else if (type === 'bid.rejected') {
+        // no UI change
+      } else if (type.startsWith('auction.')) {
+        fetch(`/api/auctions/${id}`)
+          .then(res => res.ok ? res.json() : null)
+          .then(updated => { if (updated) setAuction(updated) })
+          .catch(() => {})
+      }
+    }
+
+    source.onerror = () => {}
+
+    return () => source.close()
+  }, [id, loading, error, auction])
+
   if (loading) return <p>Loading auction...</p>
 
   if (error) return <div className="card"><p style={{ color: 'red' }}>Error: {error}</p></div>

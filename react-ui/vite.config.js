@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/auctions/*/bids': 'http://localhost:8082',
+      '/api/notifications': 'http://localhost:8083',
       '/api': 'http://localhost:8080',
     },
   },
