@@ -17,7 +17,7 @@ class NotificationListenerTest {
 
   @BeforeEach
   void setUp() {
-    listener = new NotificationListener();
+    listener = new NotificationListener(event -> {});
     objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
   }
 
