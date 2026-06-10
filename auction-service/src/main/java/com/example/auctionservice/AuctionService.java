@@ -14,10 +14,15 @@ public class AuctionService {
 
   private final AuctionStore store;
   private final Optional<AuctionEventPublisher> eventPublisher;
+  private final AuctionEndScheduler scheduler;
 
-  public AuctionService(AuctionStore store, Optional<AuctionEventPublisher> eventPublisher) {
+  public AuctionService(
+      AuctionStore store,
+      Optional<AuctionEventPublisher> eventPublisher,
+      AuctionEndScheduler scheduler) {
     this.store = store;
     this.eventPublisher = eventPublisher;
+    this.scheduler = scheduler;
   }
 
   public Auction createAuction(CreateAuctionRequest request) {
@@ -31,7 +36,8 @@ public class AuctionService {
             request.startingPrice(),
             request.startingPrice(),
             AuctionStatus.DRAFT,
-            Instant.now());
+            Instant.now(),
+            null);
     store.put(auctionId, auction);
     eventPublisher.ifPresent(p -> p.auctionCreated(auction));
     return auction;
@@ -51,12 +57,31 @@ public class AuctionService {
         .toList();
   }
 
-  public Auction startAuction(String auctionId) {
+  public Auction startAuction(String auctionId, Instant endsAt) {
     Auction auction = getAuctionById(auctionId);
     if (auction.status() != AuctionStatus.DRAFT) {
       throw invalidTransition("start", auction.status());
     }
-    return updateAuctionStatus(auction, AuctionStatus.ACTIVE);
+    if (endsAt != null && !endsAt.isAfter(Instant.now())) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endsAt must be in the future");
+    }
+    Auction started =
+        new Auction(
+            auction.id(),
+            auction.title(),
+            auction.description(),
+            auction.sellerId(),
+            auction.startingPrice(),
+            auction.currentPrice(),
+            AuctionStatus.ACTIVE,
+            auction.createdAt(),
+            endsAt);
+    store.put(auctionId, started);
+    eventPublisher.ifPresent(p -> p.auctionStarted(started));
+    if (endsAt != null) {
+      scheduler.scheduleEnd(auctionId, endsAt);
+    }
+    return started;
   }
 
   public Auction endAuction(String auctionId) {
@@ -94,7 +119,8 @@ public class AuctionService {
             auction.startingPrice(),
             request.amount(),
             auction.status(),
-            auction.createdAt());
+            auction.createdAt(),
+            auction.endsAt());
     store.put(updated.id(), updated);
     return updated;
   }
@@ -109,7 +135,8 @@ public class AuctionService {
             auction.startingPrice(),
             auction.currentPrice(),
             targetStatus,
-            auction.createdAt());
+            auction.createdAt(),
+            auction.endsAt());
     store.put(updatedAuction.id(), updatedAuction);
     switch (targetStatus) {
       case ACTIVE -> eventPublisher.ifPresent(p -> p.auctionStarted(updatedAuction));

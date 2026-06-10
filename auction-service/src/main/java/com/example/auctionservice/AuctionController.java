@@ -39,8 +39,9 @@ public class AuctionController {
   }
 
   @PostMapping("/{auctionId}/start")
-  public AuctionResponse startAuction(@PathVariable String auctionId) {
-    return toResponse(auctionService.startAuction(auctionId));
+  public AuctionResponse startAuction(
+      @PathVariable String auctionId, @Valid @RequestBody StartAuctionRequest request) {
+    return toResponse(auctionService.startAuction(auctionId, request.endsAt()));
   }
 
   @PostMapping("/{auctionId}/end")

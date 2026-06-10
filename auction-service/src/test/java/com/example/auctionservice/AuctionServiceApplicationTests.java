@@ -2,22 +2,50 @@ package com.example.auctionservice;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.concurrent.CompletableFuture;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(AuctionServiceApplicationTests.TestConfig.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 class AuctionServiceApplicationTests {
+
+  @TestConfiguration
+  static class TestConfig {
+    @Bean
+    @Primary
+    @SuppressWarnings("unchecked")
+    public KafkaTemplate<String, String> kafkaTemplate() {
+      KafkaTemplate<String, String> template = mock(KafkaTemplate.class);
+      when(template.send(anyString(), anyString(), anyString()))
+          .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
+      return template;
+    }
+  }
 
   @LocalServerPort
   private int port;
@@ -40,6 +68,14 @@ class AuctionServiceApplicationTests {
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_JSON);
     return new HttpEntity<>(body, headers);
+  }
+
+  private HttpEntity<String> startRequest(Instant endsAt) {
+    return jsonRequest("{\"endsAt\": \"" + endsAt.toString() + "\"}");
+  }
+
+  private Instant farFuture() {
+    return Instant.now().plus(1, ChronoUnit.HOURS);
   }
 
   @Test
@@ -127,7 +163,7 @@ class AuctionServiceApplicationTests {
 
     @SuppressWarnings("rawtypes")
     ResponseEntity<AuctionResponse> started =
-        rest.postForEntity(transitionUrl(auctionId, "start"), null, AuctionResponse.class);
+        rest.postForEntity(transitionUrl(auctionId, "start"), startRequest(farFuture()), AuctionResponse.class);
     assertThat(started.getStatusCode()).isEqualTo(HttpStatus.OK);
     assertThat(started.getBody().status()).isEqualTo(AuctionStatus.ACTIVE);
 
@@ -142,11 +178,11 @@ class AuctionServiceApplicationTests {
   void secondStartAfterEndedFailsWithClearError() {
     String auctionId = createAuction("Chair", "Office chair", "seller-6", 40);
 
-    rest.postForEntity(transitionUrl(auctionId, "start"), null, AuctionResponse.class);
+    rest.postForEntity(transitionUrl(auctionId, "start"), startRequest(farFuture()), AuctionResponse.class);
     rest.postForEntity(transitionUrl(auctionId, "end"), null, AuctionResponse.class);
 
     assertThatThrownBy(
-            () -> rest.postForEntity(transitionUrl(auctionId, "start"), null, String.class))
+            () -> rest.postForEntity(transitionUrl(auctionId, "start"), startRequest(farFuture()), String.class))
         .isInstanceOf(HttpClientErrorException.Conflict.class);
   }
 
@@ -161,7 +197,7 @@ class AuctionServiceApplicationTests {
     assertThat(cancelled.getBody().status()).isEqualTo(AuctionStatus.CANCELLED);
 
     String activeId = createAuction("Tablet", "Android tablet", "seller-8", 90);
-    rest.postForEntity(transitionUrl(activeId, "start"), null, AuctionResponse.class);
+    rest.postForEntity(transitionUrl(activeId, "start"), startRequest(farFuture()), AuctionResponse.class);
 
     @SuppressWarnings("rawtypes")
     ResponseEntity<AuctionResponse> cancelled2 =
@@ -182,7 +218,7 @@ class AuctionServiceApplicationTests {
   @Test
   void transitionFailsWithNotFoundForMissingAuction() {
     assertThatThrownBy(
-            () -> rest.postForEntity(transitionUrl("missing-id", "start"), null, String.class))
+            () -> rest.postForEntity(transitionUrl("missing-id", "start"), startRequest(farFuture()), String.class))
         .isInstanceOf(HttpClientErrorException.NotFound.class);
   }
 
@@ -190,7 +226,7 @@ class AuctionServiceApplicationTests {
   void highestBidUpdatesCurrentPrice() {
     String auctionId = createAuction("Laptop", "Gaming laptop", "seller-10", 50);
 
-    rest.postForEntity(transitionUrl(auctionId, "start"), null, AuctionResponse.class);
+    rest.postForEntity(transitionUrl(auctionId, "start"), startRequest(farFuture()), AuctionResponse.class);
 
     var highestBidRequest = jsonRequest("""
         {"bidId": "bid-1", "bidderId": "user-1", "amount": 80}
@@ -209,6 +245,26 @@ class AuctionServiceApplicationTests {
 
     assertThat(getResp.getStatusCode()).isEqualTo(HttpStatus.OK);
     assertThat(getResp.getBody().currentPrice()).isEqualByComparingTo("80");
+  }
+
+  @Test
+  void auctionAutoEndsWhenEndsAtArrives() throws Exception {
+    String auctionId = createAuction("Flash Deal", "Limited time offer", "seller-11", 20);
+
+    Instant endsAt = Instant.now().plus(2, ChronoUnit.SECONDS);
+    rest.postForEntity(transitionUrl(auctionId, "start"), startRequest(endsAt), AuctionResponse.class);
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> afterStart =
+        rest.getForEntity(auctionUrl(auctionId), AuctionResponse.class);
+    assertThat(afterStart.getBody().status()).isEqualTo(AuctionStatus.ACTIVE);
+
+    Thread.sleep(4000);
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> afterEnd =
+        rest.getForEntity(auctionUrl(auctionId), AuctionResponse.class);
+    assertThat(afterEnd.getBody().status()).isEqualTo(AuctionStatus.ENDED);
   }
 
   private String highestBidUrl(String auctionId) {
