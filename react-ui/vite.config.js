@@ -5,9 +5,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '^/api/auctions/[^/]+/bids': 'http://localhost:8082',
-      '/api/notifications': 'http://localhost:8083',
-      '/api': 'http://localhost:8080',
+      '^/api/auctions/[^/]+/bids': process.env.VITE_BIDDING_SERVICE_URL || 'http://localhost:8082',
+      '/api/notifications': process.env.VITE_NOTIFICATION_SERVICE_URL || 'http://localhost:8083',
+      '/api': process.env.VITE_AUCTION_SERVICE_URL || 'http://localhost:8080',
     },
   },
 })
