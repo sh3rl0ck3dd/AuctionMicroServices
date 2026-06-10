@@ -27,6 +27,7 @@ public class SseRegistry {
   }
 
   public void register(String auctionId, SseEmitter emitter) {
+    log.info("SSE emitter registered for auction {}", auctionId);
     emitters.computeIfAbsent(auctionId, k -> new CopyOnWriteArrayList<>()).add(emitter);
     emitter.onCompletion(() -> remove(auctionId, emitter));
     emitter.onTimeout(() -> remove(auctionId, emitter));
@@ -36,6 +37,9 @@ public class SseRegistry {
   @EventListener
   public void onSseNotificationEvent(SseNotificationEvent event) {
     List<SseEmitter> auctionEmitters = emitters.get(event.auctionId());
+    log.info("SSE event received: type={} auctionId={} emitters={}",
+        event.eventType(), event.auctionId(),
+        auctionEmitters == null ? 0 : auctionEmitters.size());
     if (auctionEmitters == null || auctionEmitters.isEmpty()) {
       return;
     }

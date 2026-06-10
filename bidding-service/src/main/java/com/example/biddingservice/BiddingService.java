@@ -9,12 +9,16 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class BiddingService {
+
+  private static final Logger log = LoggerFactory.getLogger(BiddingService.class);
 
   private final AuctionClient auctionClient;
   private final BidStore bidStore;
@@ -90,7 +94,12 @@ public class BiddingService {
               Instant.now());
 
       bids.add(bid);
-      eventPublisher.ifPresent(p -> p.bidAccepted(bid));
+      eventPublisher.ifPresentOrElse(
+          p -> {
+            log.info("Publishing bid.accepted event to Kafka");
+            p.bidAccepted(bid);
+          },
+          () -> log.warn("No BidEventPublisher available — Kafka may not be connected"));
       auctionClient.updateHighestBid(auctionId, bidId, request.bidderId(), request.amount());
       return bid;
     } finally {

@@ -93,6 +93,7 @@ public class NotificationListener {
 
   private void publishEvent(String auctionId, String eventType, Object event) {
     Map<String, Object> data = objectMapper.convertValue(event, Map.class);
+    log.info("Publishing SseNotificationEvent: type={} auctionId={}", eventType, auctionId);
     eventPublisher.publishEvent(new SseNotificationEvent(auctionId, eventType, data));
   }
 }
