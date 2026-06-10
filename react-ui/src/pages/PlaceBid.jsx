@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 
 function PlaceBid() {
@@ -7,6 +7,17 @@ function PlaceBid() {
   const [form, setForm] = useState({ bidderId: '', amount: '' })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
+  const [auctionTitle, setAuctionTitle] = useState(null)
+
+  useEffect(() => {
+    fetch(`/api/auctions/${id}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load auction')
+        return res.json()
+      })
+      .then(auction => setAuctionTitle(auction.title))
+      .catch(() => setAuctionTitle(null))
+  }, [id])
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -22,7 +33,18 @@ function PlaceBid() {
       }),
     })
       .then(res => {
-        if (!res.ok) return res.text().then(msg => { throw new Error(msg || 'Bid failed') })
+        if (!res.ok) {
+          return res.text().then(body => {
+            let msg = 'Bid failed'
+            try {
+              const parsed = JSON.parse(body)
+              msg = parsed.message || msg
+            } catch (_) {
+              msg = body || msg
+            }
+            throw new Error(msg)
+          })
+        }
         return res.json()
       })
       .then(() => navigate(`/auction/${id}`))
@@ -38,7 +60,7 @@ function PlaceBid() {
       <div className="card">
         <h2 style={{ marginBottom: '1rem' }}>Place Bid</h2>
         <p style={{ marginBottom: '1rem', color: '#666' }}>
-          Bidding on auction <strong>{id}</strong>
+          Bidding on auction <strong>{auctionTitle || id}</strong>
         </p>
         {error && <p style={{ color: 'red', marginBottom: '1rem' }}>Error: {error}</p>}
         <form onSubmit={handleSubmit}>
