@@ -4,27 +4,36 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnBean(KafkaTemplate.class)
 public class AuctionEventPublisher {
 
   private static final Logger log = LoggerFactory.getLogger(AuctionEventPublisher.class);
   private static final String TOPIC = "auction-events";
 
-  private final KafkaTemplate<String, String> kafkaTemplate;
+  private final Optional<KafkaTemplate<String, String>> kafkaTemplate;
   private final ObjectMapper objectMapper;
 
-  public AuctionEventPublisher(KafkaTemplate<String, String> kafkaTemplate) {
+  public AuctionEventPublisher(Optional<KafkaTemplate<String, String>> kafkaTemplate) {
     this.kafkaTemplate = kafkaTemplate;
     this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+  }
+
+  @PostConstruct
+  void init() {
+    if (kafkaTemplate.isPresent()) {
+      log.info("AuctionEventPublisher initialized — Kafka events will be published");
+    } else {
+      log.warn("AuctionEventPublisher initialized without KafkaTemplate — events will not be published");
+    }
   }
 
   public void auctionCreated(Auction auction) {
@@ -40,6 +49,11 @@ public class AuctionEventPublisher {
   }
 
   private void publish(String eventType, Auction auction) {
+    if (kafkaTemplate.isEmpty()) {
+      log.warn("Skipping event {} for auction {} — no KafkaTemplate available", eventType, auction.id());
+      return;
+    }
+
     AuctionEvent event =
         new AuctionEvent(
             eventType,
@@ -61,7 +75,7 @@ public class AuctionEventPublisher {
     }
 
     CompletableFuture<SendResult<String, String>> future =
-        kafkaTemplate.send(TOPIC, key, payload);
+        kafkaTemplate.get().send(TOPIC, key, payload);
 
     future.whenComplete(
         (result, ex) -> {

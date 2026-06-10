@@ -4,27 +4,36 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnBean(KafkaTemplate.class)
 public class BidEventPublisher {
 
   private static final Logger log = LoggerFactory.getLogger(BidEventPublisher.class);
   private static final String TOPIC = "bid-events";
 
-  private final KafkaTemplate<String, String> kafkaTemplate;
+  private final Optional<KafkaTemplate<String, String>> kafkaTemplate;
   private final ObjectMapper objectMapper;
 
-  public BidEventPublisher(KafkaTemplate<String, String> kafkaTemplate) {
+  public BidEventPublisher(Optional<KafkaTemplate<String, String>> kafkaTemplate) {
     this.kafkaTemplate = kafkaTemplate;
     this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+  }
+
+  @PostConstruct
+  void init() {
+    if (kafkaTemplate.isPresent()) {
+      log.info("BidEventPublisher initialized — Kafka events will be published");
+    } else {
+      log.warn("BidEventPublisher initialized without KafkaTemplate — events will not be published");
+    }
   }
 
   public void bidAccepted(Bid bid) {
@@ -36,6 +45,11 @@ public class BidEventPublisher {
   }
 
   private void publish(String eventType, Bid bid) {
+    if (kafkaTemplate.isEmpty()) {
+      log.warn("Skipping event {} for bid {} — no KafkaTemplate available", eventType, bid.id());
+      return;
+    }
+
     BidEvent event =
         new BidEvent(
             eventType,
@@ -56,7 +70,7 @@ public class BidEventPublisher {
     }
 
     CompletableFuture<SendResult<String, String>> future =
-        kafkaTemplate.send(TOPIC, key, payload);
+        kafkaTemplate.get().send(TOPIC, key, payload);
 
     future.whenComplete(
         (result, ex) -> {
