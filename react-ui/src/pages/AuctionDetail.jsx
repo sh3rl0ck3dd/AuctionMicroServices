@@ -28,7 +28,7 @@ function AuctionDetail() {
   }, [id])
 
   useEffect(() => {
-    if (loading || error || !auction) return
+    if (loading || error) return
 
     const source = new EventSource(`/api/notifications/auctions/${id}/stream`)
 
@@ -61,7 +61,7 @@ function AuctionDetail() {
     source.onerror = () => {}
 
     return () => source.close()
-  }, [id, loading, error, auction])
+  }, [id, loading, error])
 
   if (loading) return <p>Loading auction...</p>
 
@@ -83,6 +83,21 @@ function AuctionDetail() {
           <span><strong>Starting:</strong> ${auction.startingPrice}</span>
           <span><strong>Current:</strong> ${auction.currentPrice}</span>
         </div>
+        {auction.status === 'DRAFT' && (
+          <button
+            className="btn btn-primary"
+            style={{ marginTop: '0.5rem' }}
+            onClick={async () => {
+              const res = await fetch(`/api/auctions/${id}/start`, { method: 'POST' })
+              if (res.ok) {
+                const updated = await res.json()
+                setAuction(updated)
+              }
+            }}
+          >
+            Start Auction
+          </button>
+        )}
         {auction.status === 'ACTIVE' && (
           <Link to={`/auction/${id}/bid`} className="btn btn-primary" style={{ marginTop: '0.5rem', display: 'inline-block' }}>
             Place Bid
