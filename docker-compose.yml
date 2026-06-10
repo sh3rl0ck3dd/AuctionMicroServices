@@ -63,6 +63,7 @@ services:
       - gradle_auction_cache:/root/.gradle
     environment:
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - AUCTION_SERVICE_SQS_ENABLED=true
       - AUCTION_SERVICE_SQS_ENDPOINT=http://localstack:4566
     depends_on:
       kafka:
