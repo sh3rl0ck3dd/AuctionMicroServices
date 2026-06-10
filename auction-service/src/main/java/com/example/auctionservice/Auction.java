@@ -12,4 +12,5 @@ public record Auction(
     BigDecimal currentPrice,
     AuctionStatus status,
     Instant createdAt,
-    Instant endsAt) {}
+    Instant endsAt,
+    Instant lastBidTime) {}

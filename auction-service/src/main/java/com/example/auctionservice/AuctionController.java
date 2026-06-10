@@ -68,6 +68,8 @@ public class AuctionController {
         auction.sellerId(),
         auction.startingPrice(),
         auction.currentPrice(),
-        auction.status());
+        auction.status(),
+        auction.endsAt(),
+        auction.lastBidTime());
   }
 }

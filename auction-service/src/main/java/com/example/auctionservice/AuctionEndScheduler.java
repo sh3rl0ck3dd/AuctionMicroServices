@@ -7,6 +7,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +15,7 @@ import jakarta.annotation.PostConstruct;
 
 @Component
 @DependsOn("auctionStore")
+@ConditionalOnProperty(prefix = "auction-service.sqs", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class AuctionEndScheduler {
 
   private static final Logger log = LoggerFactory.getLogger(AuctionEndScheduler.class);
@@ -62,7 +64,8 @@ public class AuctionEndScheduler {
             auction.currentPrice(),
             AuctionStatus.ENDED,
             auction.createdAt(),
-            auction.endsAt());
+            auction.endsAt(),
+            auction.lastBidTime());
     store.put(auctionId, ended);
     eventPublisher.ifPresent(p -> p.auctionEnded(ended));
   }

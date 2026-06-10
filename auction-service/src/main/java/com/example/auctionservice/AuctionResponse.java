@@ -1,6 +1,7 @@
 package com.example.auctionservice;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 public record AuctionResponse(
     String id,
@@ -9,4 +10,6 @@ public record AuctionResponse(
     String sellerId,
     BigDecimal startingPrice,
     BigDecimal currentPrice,
-    AuctionStatus status) {}
+    AuctionStatus status,
+    Instant endsAt,
+    Instant lastBidTime) {}
