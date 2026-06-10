@@ -2,12 +2,18 @@ package com.example.biddingservice;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.RestTemplate;
@@ -20,14 +26,34 @@ import org.springframework.web.client.HttpClientErrorException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(BiddingServiceApplicationTests.TestConfig.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @ActiveProfiles("mock")
 class BiddingServiceApplicationTests {
+
+  @TestConfiguration
+  static class TestConfig {
+    @Bean
+    @Primary
+    @SuppressWarnings("unchecked")
+    public KafkaTemplate<String, String> kafkaTemplate() {
+      KafkaTemplate<String, String> template = mock(KafkaTemplate.class);
+      when(template.send(anyString(), anyString(), anyString()))
+          .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
+      return template;
+    }
+  }
 
   @LocalServerPort
   private int port;
