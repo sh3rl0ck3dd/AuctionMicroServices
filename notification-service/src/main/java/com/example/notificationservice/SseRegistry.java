@@ -29,9 +29,18 @@ public class SseRegistry {
   public void register(String auctionId, SseEmitter emitter) {
     log.info("SSE emitter registered for auction {}", auctionId);
     emitters.computeIfAbsent(auctionId, k -> new CopyOnWriteArrayList<>()).add(emitter);
-    emitter.onCompletion(() -> remove(auctionId, emitter));
-    emitter.onTimeout(() -> remove(auctionId, emitter));
-    emitter.onError(e -> remove(auctionId, emitter));
+    emitter.onCompletion(() -> {
+      log.info("SSE emitter completed for auction {}", auctionId);
+      remove(auctionId, emitter);
+    });
+    emitter.onTimeout(() -> {
+      log.info("SSE emitter timed out for auction {}", auctionId);
+      remove(auctionId, emitter);
+    });
+    emitter.onError(e -> {
+      log.warn("SSE emitter error for auction {}: {}", auctionId, e.getMessage());
+      remove(auctionId, emitter);
+    });
   }
 
   @EventListener
@@ -57,6 +66,7 @@ public class SseRegistry {
       try {
         emitter.send(payload);
       } catch (IOException e) {
+        log.warn("Failed to send SSE event to emitter for auction {}: {}", event.auctionId(), e.getMessage());
         emitter.completeWithError(e);
       }
     }
