@@ -88,7 +88,12 @@ function AuctionDetail() {
             className="btn btn-primary"
             style={{ marginTop: '0.5rem' }}
             onClick={async () => {
-              const res = await fetch(`/api/auctions/${id}/start`, { method: 'POST' })
+              const endsAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
+              const res = await fetch(`/api/auctions/${id}/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ endsAt }),
+              })
               if (res.ok) {
                 const updated = await res.json()
                 setAuction(updated)
