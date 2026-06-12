@@ -39,6 +39,7 @@ public class BiddingService {
       AuctionSummary auction = auctionClient.getAuction(auctionId);
 
       if (!"ACTIVE".equals(auction.status())) {
+        log.warn("Cannot place bid on auction {} — status is {}", auctionId, auction.status());
         throw new ResponseStatusException(
             HttpStatus.CONFLICT, "Auction is not active: " + auctionId);
       }
@@ -52,6 +53,8 @@ public class BiddingService {
           .orElse(auction.startingPrice());
 
       if (request.amount().compareTo(currentHighest) <= 0) {
+        log.warn("Bid rejected for auction {} — amount {} does not exceed current highest {}",
+            auctionId, request.amount(), currentHighest);
         Bid rejected =
             new Bid(
                 UUID.randomUUID().toString(),
@@ -101,6 +104,7 @@ public class BiddingService {
           },
           () -> log.warn("No BidEventPublisher available — Kafka may not be connected"));
       auctionClient.updateHighestBid(auctionId, bidId, request.bidderId(), request.amount());
+      log.info("Bid placed on auction {}: amount={} bidder={}", auctionId, request.amount(), request.bidderId());
       return bid;
     } finally {
       lock.unlock();

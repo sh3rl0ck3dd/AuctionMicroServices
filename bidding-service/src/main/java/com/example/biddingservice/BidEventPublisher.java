@@ -77,7 +77,7 @@ public class BidEventPublisher {
           if (ex != null) {
             log.error("Failed to publish event {} for bid {}", eventType, bid.id(), ex);
           } else {
-            log.debug(
+            log.info(
                 "Published event {} for bid {} to partition {} offset {}",
                 eventType,
                 bid.id(),

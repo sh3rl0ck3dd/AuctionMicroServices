@@ -89,6 +89,7 @@ public class BidStore {
       Files.createDirectories(filePath.getParent());
       String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(bidsByAuctionId);
       Files.writeString(filePath, json);
+      log.info("Saved bids to {}", filePath);
     } catch (IOException e) {
       log.error("Failed to save bids to {}", filePath, e);
     }
