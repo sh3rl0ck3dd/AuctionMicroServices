@@ -38,6 +38,14 @@ public class GlobalExceptionHandler {
         .body(Map.of("error", message, "status", 400));
   }
 
+  @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+  public ResponseEntity<Map<String, Object>> handleMessageNotReadable(
+      org.springframework.http.converter.HttpMessageNotReadableException ex, HttpServletRequest request) {
+    log.warn("{} {} — malformed request body: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(Map.of("error", ex.getMessage(), "status", 400));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<Map<String, Object>> handleException(
       Exception ex, HttpServletRequest request) {
