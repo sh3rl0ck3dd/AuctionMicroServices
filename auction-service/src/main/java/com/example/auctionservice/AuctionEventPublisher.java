@@ -82,7 +82,7 @@ public class AuctionEventPublisher {
           if (ex != null) {
             log.error("Failed to publish event {} for auction {}", eventType, auction.id(), ex);
           } else {
-            log.debug(
+            log.info(
                 "Published event {} for auction {} to partition {} offset {}",
                 eventType,
                 auction.id(),

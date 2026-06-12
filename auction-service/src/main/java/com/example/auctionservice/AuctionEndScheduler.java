@@ -32,9 +32,11 @@ public class AuctionEndScheduler {
   public void scheduleEnd(String auctionId, Instant endsAt) {
     long delayMs = endsAt.toEpochMilli() - System.currentTimeMillis();
     if (delayMs <= 0) {
+      log.info("Auction {} end time already passed — ending immediately", auctionId);
       executeEnd(auctionId);
       return;
     }
+    log.info("Scheduled auction {} to end at {} (delay {}ms)", auctionId, endsAt, delayMs);
     executor.schedule(() -> executeEnd(auctionId), delayMs, TimeUnit.MILLISECONDS);
   }
 
@@ -68,5 +70,6 @@ public class AuctionEndScheduler {
             auction.lastBidTime());
     store.put(auctionId, ended);
     eventPublisher.ifPresent(p -> p.auctionEnded(ended));
+    log.info("Auction {} ended via scheduler", auctionId);
   }
 }

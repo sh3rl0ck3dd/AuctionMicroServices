@@ -128,12 +128,14 @@ public class SqsAuctionEndConsumer {
           .messageBody(body)
           .delaySeconds((int) Math.min(delaySeconds, 900))
           .build());
+      log.info("Sent SQS end message for auction {} with delay {}s", auctionId, Math.min(delaySeconds, 900));
     } catch (JsonProcessingException e) {
       log.error("Failed to serialize SQS message for auction {}", auctionId, e);
     }
   }
 
   public void scheduleEnd(String auctionId, Instant endsAt) {
+    log.info("Scheduling auction {} end via SQS at {}", auctionId, endsAt);
     sendScheduledEnd(auctionId, endsAt);
   }
 

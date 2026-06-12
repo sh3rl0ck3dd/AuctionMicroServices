@@ -77,6 +77,7 @@ public class AuctionStore {
       Files.createDirectories(filePath.getParent());
       String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(auctions);
       Files.writeString(filePath, json);
+      log.info("Saved {} auctions to {}", auctions.size(), filePath);
     } catch (IOException e) {
       log.error("Failed to save auctions to {}", filePath, e);
     }
