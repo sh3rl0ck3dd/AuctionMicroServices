@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=auctiondb
+      - POSTGRES_USER=auctionuser
+      - POSTGRES_PASSWORD=auctionpass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "auctionuser", "-d", "auctiondb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   kafka:
     image: apache/kafka:latest
     container_name: kafka
@@ -70,9 +88,14 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/auctiondb
+      - SPRING_DATASOURCE_USERNAME=auctionuser
+      - SPRING_DATASOURCE_PASSWORD=auctionpass
       - AUCTION_SERVICE_SQS_ENABLED=true
       - AUCTION_SERVICE_SQS_ENDPOINT=http://localstack:4566
     depends_on:
+      postgres:
+        condition: service_healthy
       kafka:
         condition: service_healthy
       localstack:
@@ -99,7 +122,12 @@ services:
     environment:
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - AUCTION_SERVICE_URL=http://auction-service:8080
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/auctiondb
+      - SPRING_DATASOURCE_USERNAME=auctionuser
+      - SPRING_DATASOURCE_PASSWORD=auctionpass
     depends_on:
+      postgres:
+        condition: service_healthy
       kafka:
         condition: service_healthy
       auction-service:
@@ -156,6 +184,7 @@ services:
         condition: service_healthy
 
 volumes:
+  postgres_data:
   localstack_data:
   gradle_auction_cache:
   gradle_bidding_cache:
