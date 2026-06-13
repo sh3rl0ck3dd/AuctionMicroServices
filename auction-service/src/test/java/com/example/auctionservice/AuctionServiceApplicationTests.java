@@ -18,9 +18,12 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -265,6 +268,39 @@ class AuctionServiceApplicationTests {
     ResponseEntity<AuctionResponse> afterEnd =
         rest.getForEntity(auctionUrl(auctionId), AuctionResponse.class);
     assertThat(afterEnd.getBody().status()).isEqualTo(AuctionStatus.ENDED);
+  }
+
+  @Test
+  void concurrentBidsProduceCorrectHighestPrice() throws Exception {
+    String auctionId = createAuction("Concurrent Item", "Race condition test", "seller-12", 1);
+
+    rest.postForEntity(transitionUrl(auctionId, "start"), startRequest(farFuture()), AuctionResponse.class);
+
+    int threadCount = 100;
+    ExecutorService executor = Executors.newFixedThreadPool(20);
+    BigDecimal maxAmount = new BigDecimal(10 + (threadCount - 1) * 10);
+
+    for (int i = 0; i < threadCount; i++) {
+      final BigDecimal amount = new BigDecimal(10 + i * 10);
+      executor.execute(() -> {
+        try {
+          var req = jsonRequest("{\"bidId\": \"bid-" + Thread.currentThread().getName()
+              + "\", \"bidderId\": \"user-concurrent\", \"amount\": " + amount + "}");
+          rest.postForEntity(highestBidUrl(auctionId), req, AuctionResponse.class);
+        } catch (Exception ignored) {
+        }
+      });
+    }
+
+    executor.shutdown();
+    boolean terminated = executor.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS);
+
+    @SuppressWarnings("rawtypes")
+    ResponseEntity<AuctionResponse> response =
+        rest.getForEntity(auctionUrl(auctionId), AuctionResponse.class);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(response.getBody().currentPrice()).isEqualByComparingTo(maxAmount);
   }
 
   private String highestBidUrl(String auctionId) {

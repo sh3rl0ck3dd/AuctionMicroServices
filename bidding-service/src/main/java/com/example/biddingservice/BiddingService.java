@@ -2,7 +2,6 @@ package com.example.biddingservice;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -13,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -21,14 +21,19 @@ public class BiddingService {
   private static final Logger log = LoggerFactory.getLogger(BiddingService.class);
 
   private final AuctionClient auctionClient;
-  private final BidStore bidStore;
+  private final BidRepository bidRepository;
+  private final TransactionTemplate transactionTemplate;
   private final Optional<BidEventPublisher> eventPublisher;
   private final Map<String, ReentrantLock> lockByAuctionId = new ConcurrentHashMap<>();
 
   public BiddingService(
-      AuctionClient auctionClient, BidStore bidStore, Optional<BidEventPublisher> eventPublisher) {
+      AuctionClient auctionClient,
+      BidRepository bidRepository,
+      TransactionTemplate transactionTemplate,
+      Optional<BidEventPublisher> eventPublisher) {
     this.auctionClient = auctionClient;
-    this.bidStore = bidStore;
+    this.bidRepository = bidRepository;
+    this.transactionTemplate = transactionTemplate;
     this.eventPublisher = eventPublisher;
   }
 
@@ -44,8 +49,7 @@ public class BiddingService {
             HttpStatus.CONFLICT, "Auction is not active: " + auctionId);
       }
 
-      bidStore.putIfAbsent(auctionId, new ArrayList<>());
-      List<Bid> bids = bidStore.get(auctionId);
+      List<Bid> bids = bidRepository.findByAuctionIdOrderByCreatedAtAsc(auctionId);
 
       BigDecimal currentHighest = bids.stream()
           .map(Bid::amount)
@@ -74,19 +78,8 @@ public class BiddingService {
           .reduce((a, b) -> a.amount().compareTo(b.amount()) > 0 ? a : b)
           .orElse(null);
 
-      if (previousHighest != null) {
-        Bid outbid =
-            new Bid(
-                previousHighest.id(),
-                previousHighest.auctionId(),
-                previousHighest.bidderId(),
-                previousHighest.amount(),
-                BidStatus.OUTBID,
-                previousHighest.createdAt());
-        bids.replaceAll(b -> b.id().equals(outbid.id()) ? outbid : b);
-      }
-
       String bidId = UUID.randomUUID().toString();
+      Instant now = Instant.now();
       Bid bid =
           new Bid(
               bidId,
@@ -94,9 +87,14 @@ public class BiddingService {
               request.bidderId(),
               request.amount(),
               BidStatus.ACTIVE,
-              Instant.now());
+              now);
 
-      bids.add(bid);
+      transactionTemplate.executeWithoutResult(status -> {
+        if (previousHighest != null) {
+          bidRepository.save(previousHighest.withStatus(BidStatus.OUTBID));
+        }
+        bidRepository.save(bid);
+      });
       eventPublisher.ifPresentOrElse(
           p -> {
             log.info("Publishing bid.accepted event to Kafka");
@@ -112,6 +110,6 @@ public class BiddingService {
   }
 
   public List<Bid> getBidsForAuction(String auctionId) {
-    return bidStore.get(auctionId);
+    return bidRepository.findByAuctionIdOrderByCreatedAtAsc(auctionId);
   }
 }

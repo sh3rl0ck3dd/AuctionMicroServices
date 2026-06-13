@@ -28,7 +28,7 @@ public class SqsAuctionEndConsumer {
 
   private final SqsClient sqsClient;
   private final String queueUrl;
-  private final AuctionStore store;
+  private final AuctionRepository repo;
   private final Optional<AuctionEventPublisher> eventPublisher;
   private final ObjectMapper objectMapper;
   private final Duration extensionDuration;
@@ -37,13 +37,13 @@ public class SqsAuctionEndConsumer {
   public SqsAuctionEndConsumer(
       SqsClient sqsClient,
       String queueUrl,
-      AuctionStore store,
+      AuctionRepository repo,
       Optional<AuctionEventPublisher> eventPublisher,
       @Value("${auction-service.extension.minutes:5}") int extensionMinutes,
       @Value("${auction-service.bid-window.minutes:5}") int bidWindowMinutes) {
     this.sqsClient = sqsClient;
     this.queueUrl = queueUrl;
-    this.store = store;
+    this.repo = repo;
     this.eventPublisher = eventPublisher;
     this.objectMapper = new ObjectMapper();
     this.extensionDuration = Duration.ofMinutes(extensionMinutes);
@@ -77,7 +77,7 @@ public class SqsAuctionEndConsumer {
     String auctionId = aucEndMessage.auctionId();
     Instant endsAt = aucEndMessage.endsAt();
 
-    Auction auction = store.get(auctionId);
+    Auction auction = repo.findById(auctionId).orElse(null);
     if (auction == null || auction.status() != AuctionStatus.ACTIVE) {
       deleteMessage(message);
       return;
@@ -97,22 +97,16 @@ public class SqsAuctionEndConsumer {
     Instant lastBid = auction.lastBidTime();
     if (lastBid != null && lastBid.plus(bidWindow).isAfter(now)) {
       Instant newEndsAt = now.plus(extensionDuration);
-      Auction extended = new Auction(
-          auction.id(), auction.title(), auction.description(), auction.sellerId(),
-          auction.startingPrice(), auction.currentPrice(), auction.status(),
-          auction.createdAt(), newEndsAt, auction.lastBidTime());
-      store.put(auctionId, extended);
+      Auction extended = auction.withEndsAt(newEndsAt);
+      repo.save(extended);
       log.info("Extended auction {} end time to {}", auctionId, newEndsAt);
       sendScheduledEnd(auctionId, newEndsAt);
       deleteMessage(message);
       return;
     }
 
-    Auction ended = new Auction(
-        auction.id(), auction.title(), auction.description(), auction.sellerId(),
-        auction.startingPrice(), auction.currentPrice(), AuctionStatus.ENDED,
-        auction.createdAt(), auction.endsAt(), auction.lastBidTime());
-    store.put(auctionId, ended);
+    Auction ended = auction.withStatus(AuctionStatus.ENDED);
+    repo.save(ended);
     eventPublisher.ifPresent(p -> p.auctionEnded(ended));
     log.info("Auction {} ended via SQS consumer", auctionId);
     deleteMessage(message);

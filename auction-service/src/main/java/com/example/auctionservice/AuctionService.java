@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -16,17 +17,17 @@ public class AuctionService {
 
   private static final Logger log = LoggerFactory.getLogger(AuctionService.class);
 
-  private final AuctionStore store;
+  private final AuctionRepository repo;
   private final Optional<AuctionEventPublisher> eventPublisher;
   private final Optional<AuctionEndScheduler> scheduler;
   private final Optional<SqsAuctionEndConsumer> sqsConsumer;
 
   public AuctionService(
-      AuctionStore store,
+      AuctionRepository repo,
       Optional<AuctionEventPublisher> eventPublisher,
       Optional<AuctionEndScheduler> scheduler,
       Optional<SqsAuctionEndConsumer> sqsConsumer) {
-    this.store = store;
+    this.repo = repo;
     this.eventPublisher = eventPublisher;
     this.scheduler = scheduler;
     this.sqsConsumer = sqsConsumer;
@@ -45,8 +46,9 @@ public class AuctionService {
             AuctionStatus.DRAFT,
             Instant.now(),
             null,
+            null,
             null);
-    store.put(auctionId, auction);
+    repo.save(auction);
     eventPublisher.ifPresent(p -> p.auctionCreated(auction));
     log.info("Auction {} created: title='{}' seller={} startingPrice={}",
         auctionId, request.title(), request.sellerId(), request.startingPrice());
@@ -54,16 +56,15 @@ public class AuctionService {
   }
 
   public Auction getAuctionById(String auctionId) {
-    Auction auction = store.get(auctionId);
-    if (auction == null) {
-      log.warn("Auction {} not found", auctionId);
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Auction not found");
-    }
-    return auction;
+    return repo.findById(auctionId)
+        .orElseThrow(() -> {
+          log.warn("Auction {} not found", auctionId);
+          return new ResponseStatusException(HttpStatus.NOT_FOUND, "Auction not found");
+        });
   }
 
   public List<Auction> listAuctions() {
-    return store.values().stream()
+    return repo.findAll().stream()
         .sorted(Comparator.comparing(Auction::createdAt).reversed().thenComparing(Auction::id))
         .toList();
   }
@@ -78,19 +79,8 @@ public class AuctionService {
       log.warn("Cannot start auction {} — endsAt {} is not in the future", auctionId, endsAt);
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endsAt must be in the future");
     }
-    Auction started =
-        new Auction(
-            auction.id(),
-            auction.title(),
-            auction.description(),
-            auction.sellerId(),
-            auction.startingPrice(),
-            auction.currentPrice(),
-            AuctionStatus.ACTIVE,
-            auction.createdAt(),
-            endsAt,
-            null);
-    store.put(auctionId, started);
+    Auction started = auction.withStatus(AuctionStatus.ACTIVE).withEndsAt(endsAt);
+    repo.save(started);
     eventPublisher.ifPresent(p -> p.auctionStarted(started));
     if (endsAt != null) {
       if (sqsConsumer.isPresent()) {
@@ -124,49 +114,40 @@ public class AuctionService {
   }
 
   public Auction updateHighestBid(String auctionId, HighestBidRequest request) {
-    Auction auction = getAuctionById(auctionId);
-    if (auction.status() != AuctionStatus.ACTIVE) {
-      log.warn("Cannot update bid for auction {} in {} state", auctionId, auction.status());
-      throw invalidTransition("update bid for", auction.status());
+    int maxRetries = 3;
+    for (int retry = 0; retry < maxRetries; retry++) {
+      try {
+        Auction auction = getAuctionById(auctionId);
+        if (auction.status() != AuctionStatus.ACTIVE) {
+          log.warn("Cannot update bid for auction {} in {} state", auctionId, auction.status());
+          throw invalidTransition("update bid for", auction.status());
+        }
+        if (request.amount().compareTo(auction.currentPrice()) <= 0) {
+          log.warn("Bid amount {} does not exceed current price {} for auction {}",
+              request.amount(), auction.currentPrice(), auctionId);
+          throw new ResponseStatusException(
+              HttpStatus.BAD_REQUEST,
+              "Bid amount must exceed current price: " + auction.currentPrice());
+        }
+        Auction updated = auction.withCurrentPrice(request.amount()).withLastBidTime(Instant.now());
+        Auction saved = repo.save(updated);
+        log.info("Highest bid updated for auction {}: amount={} bidder={}", auctionId, request.amount(), request.bidderId());
+        return saved;
+      } catch (OptimisticLockingFailureException e) {
+        if (retry == maxRetries - 1) {
+          log.warn("Optimistic lock retry exhausted for auction {} after {} attempts", auctionId, maxRetries);
+          throw new ResponseStatusException(
+              HttpStatus.CONFLICT, "Could not place bid due to concurrent update — please retry");
+        }
+        log.info("Optimistic lock conflict on auction {} — retry {}/{}", auctionId, retry + 1, maxRetries);
+      }
     }
-    if (request.amount().compareTo(auction.currentPrice()) <= 0) {
-      log.warn("Bid amount {} does not exceed current price {} for auction {}",
-          request.amount(), auction.currentPrice(), auctionId);
-      throw new ResponseStatusException(
-          HttpStatus.BAD_REQUEST,
-          "Bid amount must exceed current price: " + auction.currentPrice());
-    }
-    Auction updated =
-        new Auction(
-            auction.id(),
-            auction.title(),
-            auction.description(),
-            auction.sellerId(),
-            auction.startingPrice(),
-            request.amount(),
-            auction.status(),
-            auction.createdAt(),
-            auction.endsAt(),
-            Instant.now());
-    store.put(updated.id(), updated);
-    log.info("Highest bid updated for auction {}: amount={} bidder={}", auctionId, request.amount(), request.bidderId());
-    return updated;
+    throw new ResponseStatusException(HttpStatus.CONFLICT, "Could not place bid due to concurrent update");
   }
 
   private Auction updateAuctionStatus(Auction auction, AuctionStatus targetStatus) {
-    Auction updatedAuction =
-        new Auction(
-            auction.id(),
-            auction.title(),
-            auction.description(),
-            auction.sellerId(),
-            auction.startingPrice(),
-            auction.currentPrice(),
-            targetStatus,
-            auction.createdAt(),
-            auction.endsAt(),
-            auction.lastBidTime());
-    store.put(updatedAuction.id(), updatedAuction);
+    Auction updatedAuction = auction.withStatus(targetStatus);
+    repo.save(updatedAuction);
     log.info("Auction {} status: {} → {}", auction.id(), auction.status(), targetStatus);
     switch (targetStatus) {
       case ACTIVE -> eventPublisher.ifPresent(p -> p.auctionStarted(updatedAuction));
