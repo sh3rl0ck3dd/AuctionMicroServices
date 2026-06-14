@@ -13,7 +13,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 @Entity
-@Table(name = "auctions")
+@Table(name = "auctions", schema = "auction")
 @Access(AccessType.FIELD)
 public class Auction {
 
