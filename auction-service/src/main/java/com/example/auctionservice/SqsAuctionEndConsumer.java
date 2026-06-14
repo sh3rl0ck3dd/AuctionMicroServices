@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -77,39 +78,53 @@ public class SqsAuctionEndConsumer {
     String auctionId = aucEndMessage.auctionId();
     Instant endsAt = aucEndMessage.endsAt();
 
-    Auction auction = repo.findById(auctionId).orElse(null);
-    if (auction == null || auction.status() != AuctionStatus.ACTIVE) {
-      deleteMessage(message);
-      return;
+    int maxRetries = 3;
+    for (int retry = 0; retry < maxRetries; retry++) {
+      try {
+        Auction auction = repo.findById(auctionId).orElse(null);
+        if (auction == null || auction.status() != AuctionStatus.ACTIVE) {
+          deleteMessage(message);
+          return;
+        }
+
+        Instant now = Instant.now();
+
+        if (now.isBefore(endsAt)) {
+          long remainingSeconds = Duration.between(now, endsAt).getSeconds() + 1;
+          sqsClient.changeMessageVisibility(r -> r
+              .queueUrl(queueUrl)
+              .receiptHandle(message.receiptHandle())
+              .visibilityTimeout((int) Math.min(remainingSeconds, 43_200)));
+          return;
+        }
+
+        Instant lastBid = auction.lastBidTime();
+        if (lastBid != null && lastBid.plus(bidWindow).isAfter(now)) {
+          Instant newEndsAt = now.plus(extensionDuration);
+          sendScheduledEnd(auctionId, newEndsAt);
+          Auction extended = auction.withEndsAt(newEndsAt);
+          repo.save(extended);
+          log.info("Extended auction {} end time to {}", auctionId, newEndsAt);
+          deleteMessage(message);
+          return;
+        }
+
+        Auction ended = auction.withStatus(AuctionStatus.ENDED);
+        repo.save(ended);
+        eventPublisher.ifPresent(p -> p.auctionEnded(ended));
+        log.info("Auction {} ended via SQS consumer", auctionId);
+        deleteMessage(message);
+        return;
+      } catch (OptimisticLockingFailureException e) {
+        if (retry == maxRetries - 1) {
+          log.warn("Optimistic lock retry exhausted for auction {} after {} attempts",
+              auctionId, maxRetries);
+          return;
+        }
+        log.info("Optimistic lock conflict on auction {} — retry {}/{}",
+            auctionId, retry + 1, maxRetries);
+      }
     }
-
-    Instant now = Instant.now();
-
-    if (now.isBefore(endsAt)) {
-      long remainingSeconds = Duration.between(now, endsAt).getSeconds() + 1;
-      sqsClient.changeMessageVisibility(r -> r
-          .queueUrl(queueUrl)
-          .receiptHandle(message.receiptHandle())
-          .visibilityTimeout((int) Math.min(remainingSeconds, 43_200)));
-      return;
-    }
-
-    Instant lastBid = auction.lastBidTime();
-    if (lastBid != null && lastBid.plus(bidWindow).isAfter(now)) {
-      Instant newEndsAt = now.plus(extensionDuration);
-      Auction extended = auction.withEndsAt(newEndsAt);
-      repo.save(extended);
-      log.info("Extended auction {} end time to {}", auctionId, newEndsAt);
-      sendScheduledEnd(auctionId, newEndsAt);
-      deleteMessage(message);
-      return;
-    }
-
-    Auction ended = auction.withStatus(AuctionStatus.ENDED);
-    repo.save(ended);
-    eventPublisher.ifPresent(p -> p.auctionEnded(ended));
-    log.info("Auction {} ended via SQS consumer", auctionId);
-    deleteMessage(message);
   }
 
   private void sendScheduledEnd(String auctionId, Instant endsAt) {
